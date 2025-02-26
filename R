@@ -169,5 +169,24 @@ if(length(high_corr)<0){
 # Controlliamo quante variabili sono state rimosse
 length(high_corr)  # Mostra quante variabili sono state eliminate
 
+library(car)  # Assicurati che il pacchetto sia installato
+# Calcolo del Variance Inflation Factor (VIF) per le variabili numeriche
+vif_values <- vif(lm(SalePrice ~ ., data = numeric_data))
+# Stampa dei valori VIF
+print(vif_values)
+#Variabili con VIF elevato: GrLivArea: VIF = 114.60, TotRmsAbvGrd: VIF = 65.16
+#Questi due valori di VIF sono molto alti quindi li rimuovo dal dataset per ridurre la multicollinearità
+# Identifica le variabili con VIF >= 10
+high_vif_vars <- names(vif_values[vif_values >= 10])
+# Rimuovi le variabili con VIF >= 10
+numeric_data <- numeric_data[, !names(numeric_data) %in% high_vif_vars]
+# Ricalcola il VIF dopo la rimozione
+vif_values <- vif(lm(SalePrice ~ ., data = numeric_data))
+print(vif_values)
+#ora tutti i vif sono inferiori a 10
+
 #ora unisco i 3 dataset
 complete_clean <- cbind(numeric_data,cat_one_hot,categorical_data_encoded)
+
+summary(complete_clean)
+
