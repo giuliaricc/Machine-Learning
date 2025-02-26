@@ -86,31 +86,88 @@ for (var in categorical_vars) {
   }
 
 }
-
 # Ora "significant_categoricals" contiene le variabili significative
 print(significant_categoricals)
 
 # Crea una matrice di queste variabili per uso successivo (ad esempio, per One-Hot Encoding)
 significant_categorical_data <- test_data[, significant_categoricals]
 
-# Visualizza il risultato
-head(significant_categorical_data)
+significant_categorical_data$ExterQual <- as.numeric(factor(significant_categorical_data$ExterQual, levels = c("Po", "Fa", "TA", "Gd", "Ex"), labels = c(1, 2, 3, 4, 5)))
+significant_categorical_data$ExterCond <- as.numeric(factor(significant_categorical_data$ExterCond, levels = c("Po", "Fa", "TA", "Gd", "Ex"), labels = c(1, 2, 3, 4, 5)))
+significant_categorical_data$BsmtQual <- as.numeric(factor(significant_categorical_data$BsmtQual, levels = c("BasementUnwanted", "Po", "Fa", "TA", "Gd", "Ex"), labels = c(0, 1, 2, 3, 4, 5)))
+significant_categorical_data$BsmtCond <- as.numeric(factor(significant_categorical_data$BsmtCond, levels = c("BasementUnwanted", "Po", "Fa", "TA", "Gd", "Ex"), labels = c(0, 1, 2, 3, 4, 5)))
+significant_categorical_data$HeatingQC <- as.numeric(factor(significant_categorical_data$HeatingQC, levels = c("Po", "Fa", "TA", "Gd", "Ex"), labels = c(1, 2, 3, 4, 5)))
+significant_categorical_data$KitchenQual <- as.numeric(factor(significant_categorical_data$KitchenQual, levels = c("Po", "Fa", "TA", "Gd", "Ex"), labels = c(1, 2, 3, 4, 5)))
+significant_categorical_data$FireplaceQu <- as.numeric(factor(significant_categorical_data$FireplaceQu, levels = c("FireplaceUnwanted", "Po", "Fa", "TA", "Gd", "Ex"), labels = c(0, 1, 2, 3, 4, 5)))
+significant_categorical_data$GarageQual <- as.numeric(factor(significant_categorical_data$GarageQual, levels = c("GarageUnwanted", "Po", "Fa", "TA", "Gd", "Ex"), labels = c(0, 1, 2, 3, 4, 5)))
+significant_categorical_data$GarageCond <- as.numeric(factor(significant_categorical_data$GarageCond, levels = c("GarageUnwanted", "Po", "Fa", "TA", "Gd", "Ex"), labels = c(0, 1, 2, 3, 4, 5)))
+significant_categorical_data$PoolQC <- as.numeric(factor(significant_categorical_data$PoolQC, levels = c("PoolUnwanted", "Fa", "TA", "Gd", "Ex"), labels = c(0, 1, 2, 3, 4)))
 
-#ora mi occupo delle numeriche
+#ora metto in dataset le categoriche che ho trasformato "a scala"
+cat_to_num_data <- significant_categorical_data[, sapply(significant_categorical_data, is.numeric)]
+
+
+#ora mi occupo delle variabili che sono numeriche 
 numeric_data <- test_data[, sapply(test_data, is.numeric)]
 head(numeric_data)
 
+#estraggo le categoriche da significant
+cat_one_hot <- significant_categorical_data %>% select(where(~ !is.numeric(.)))
 
 # Creiamo il modello per One-Hot Encoding
 library(caret)
-dummies <- dummyVars("~ .", data = significant_categorical_data)
+dummies <- dummyVars("~ .", data = cat_one_hot)
 # Applichiamo il modello di One-Hot Encoding per ottenere il dataframe con le variabili dummy
-categorical_data_encoded <- as.data.frame(predict(dummies, newdata = significant_categorical_data))
-head(categorical_data_encoded)
-#aggrego variabili numeriche e categoriche
-clean_test_data <- cbind(numeric_data, categorical_data_encoded)
+categorical_data_encoded <- as.data.frame(predict(dummies, newdata = cat_one_hot))
+
+#test_data: dataset iniziale
+#numeric_data : dataset delle SOLE variabili che erano numeriche fin dall'inizio
+#cat_to_num_data : dataset delle variabili che ho "reso numeriche" a scala (ex: bad=0,good=1, excellent=2)
+#categorical_data_encoded : dataset delle variabili che ho reso numeriche con l'one hot encoding
+
+# ora plottiamo la matrice delle sole variabili numeriche "naturali"
+
+#ora vediamo quali variabili sono collegate col target (utili) e quali no
+cor_target <- cor(numeric_data, use = "complete.obs")["SalePrice", ]
+cor_target_sorted <- sort(cor_target, decreasing = TRUE)
+print(cor_target_sorted)
+threshold <- 0.2  # Soglia di correlazione minima
+selected_vars <- names(cor_target_sorted[abs(cor_target_sorted) >= threshold])
+low_corr_vars <- names(cor_target[abs(cor_target) < 0.2])
+numeric_data <- numeric_data[, selected_vars]
+cat("Numero di variabili con bassa correlazione con SalePrice:", length(low_corr_vars), "\n")
+print(low_corr_vars)  # Stampa i nomi delle variabili con bassa correlazione
 
 
-cor_matrix <- cor(clean_test_data[, -which(names(clean_test_data) == "SalePrice")], use = "complete.obs")
+library(ggplot2)
+cor_target <- data.frame(Variable = names(cor_target_sorted), Correlation = cor_target_sorted)
+ggplot(cor_target, aes(x = reorder(Variable, Correlation), y = Correlation, fill = Correlation)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Correlation between variables and target")
 
-cor_matrix <- cor(clean_test_data, use = "pairwise.complete.obs")
+#costruiamo la matrice di correlazione
+cor_matrix <- cor(numeric_data[, -which(names(numeric_data) == "SalePrice")], use = "complete.obs")
+if (!require("ggcorrplot")) {
+  install.packages("ggcorrplot")
+}
+
+library(ggcorrplot)
+ggcorrplot(cor_matrix, hc.order = TRUE, type = "lower", lab = TRUE)
+
+library(caret)  # Assicurati che il pacchetto sia installato
+high_corr <- findCorrelation(cor_matrix, cutoff = 0.9)  # Identifica le colonne da rimuovere
+if(length(high_corr)<0){
+  numeric_data <- numeric_data[, -high_corr]  # Rimuove le variabili con alta correlazione (>0.9)
+}
+
+# È la matrice di correlazione tra le variabili numeriche del dataset
+# type = "lower": Mostra solo la parte inferiore della matrice di correlazione (dato che la matrice è simmetrica, evita di ripetere le informazioni)
+# Identificare e rimuovere le variabili altamente correlate
+
+# Controlliamo quante variabili sono state rimosse
+length(high_corr)  # Mostra quante variabili sono state eliminate
+
+#ora unisco i 3 dataset
+complete_clean <- cbind(numeric_data,cat_one_hot,categorical_data_encoded)
