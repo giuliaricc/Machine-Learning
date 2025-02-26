@@ -1,1 +1,116 @@
+if (!require("readr")) install.packages("readr")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("caret")) install.packages("caret")
+if (!require("e1071")) install.packages("e1071")
 
+library(readr)
+library(dplyr)
+library(caret)
+library(e1071)
+
+#tengo una copia dell'originale
+train <- read_csv("/Users/gersiprendushi/Desktop/home-data-for-ml-course/train.csv")
+#dataset che modificherò
+test_data <- train
+
+test_data <- test_data[,-1]
+
+#Vediamo ogni riga quanti NaN ha
+NaN_per_row <- rowSums(is.na(test_data))
+test_data$na_count <- NaN_per_row #aggiungo una colonna che conta i NaN di ogni riga
+max(test_data$na_count, na.rm = TRUE) #sembra che ogni osservazione abbia al massimo 10-15 NA (su 80)
+# quindi non eliminiamo nessuna riga
+# anche perchè alcuni Na non corrispondono a dati mancanti, ma sono collegati a risposte precedenti
+test_data <- test_data %>% select(-na_count) #tolgo dal dataset la colonna che mi conta i NaN
+rm(NaN_per_row)
+
+#Ora vediamo quali colonne hanno troppi NaN:
+NaN_per_column <- colSums(is.na(test_data))
+threshold <- 0.40 * nrow(test_data) #ho messo la soglia del 40%
+colonne_con_troppi_NaN <- names(NaN_per_column[NaN_per_column > threshold])
+colonne_con_troppi_NaN
+#quattro colonne hanno piu del 40% di NaN
+
+#i NaN della colonna Alley significano che non vogliono l'alley, NON che manca il dato
+test_data$Alley[is.na(test_data$Alley)] <- "UNWANTED" #sostituisco i NaN con "Non voluto"
+#idem per fireplace quality
+test_data$FireplaceQu[is.na(test_data$FireplaceQu)] <- "UNWANTED"
+
+#controllare anche le altre tre dal file "descrizione"
+test_data$PoolQC[is.na(test_data$PoolQC)] <- "PoolUnwanted"
+test_data$Fence[is.na(test_data$Fence)] <- "FenceUnwanted"
+test_data$MiscFeature[is.na(test_data$MiscFeature)] <- "FeaturesUnwanted"
+#faccio lo stesso anche con le altre variabili dove "NaN" NON significa "dato mancante"
+test_data$BsmtQual[is.na(test_data$BsmtQual)] <- "BasementUnwanted"
+test_data$BsmtCond[is.na(test_data$BsmtCond)] <- "BasementUnwanted"
+test_data$BsmtExposure[is.na(test_data$BsmtExposure)] <- "BasementUnwanted"
+test_data$BsmtFinType1[is.na(test_data$BsmtFinType1)] <- "BasementUnwanted"
+test_data$BsmtFinType2[is.na(test_data$BsmtFinType2)] <- "BasementUnwanted"
+test_data$GarageType[is.na(test_data$GarageType)] <- "GarageUnwanted"
+test_data$GarageFinish[is.na(test_data$GarageFinish)] <- "GarageUnwanted"
+test_data$GarageQual[is.na(test_data$GarageQual)] <- "GarageUnwanted"
+test_data$GarageCond[is.na(test_data$GarageCond)] <- "GarageUnwanted"
+
+
+
+# Lista delle variabili categoriche
+# Converte le colonne character in factor
+test_data[] <- lapply(test_data, function(x) if(is.character(x)) as.factor(x) else x)
+
+# Ora trova le colonne di tipo factor
+categorical_vars <- names(test_data)[sapply(test_data, is.factor)]
+
+print(categorical_vars)
+
+# Inizializza una lista per memorizzare i risultati
+anova_results <- list()
+
+# Ciclo for per eseguire ANOVA su ciascuna variabile categorica
+# Crea un vettore per memorizzare le variabili categoriche significative
+significant_categoricals <- c()
+
+# Esegui ANOVA per tutte le variabili categoriche
+for (var in categorical_vars) {
+  # Esegui il test ANOVA
+  anova_result <- aov(SalePrice ~ get(var), data = test_data)
+  
+  # Estrai il p-value
+  p_value <- summary(anova_result)[[1]]$`Pr(>F)`[1]
+  
+  # Se il p-value è significativo (ad esempio < 0.05), aggiungi la variabile alla lista
+  if (p_value < 0.05) {
+    significant_categoricals <- c(significant_categoricals, var)
+  } else {
+    # Stampa le variabili non significative
+    print(paste("Non significativa:", var, "con p-value:", p_value))
+  }
+
+}
+
+# Ora "significant_categoricals" contiene le variabili significative
+print(significant_categoricals)
+
+# Crea una matrice di queste variabili per uso successivo (ad esempio, per One-Hot Encoding)
+significant_categorical_data <- test_data[, significant_categoricals]
+
+# Visualizza il risultato
+head(significant_categorical_data)
+
+#ora mi occupo delle numeriche
+numeric_data <- test_data[, sapply(test_data, is.numeric)]
+head(numeric_data)
+
+
+# Creiamo il modello per One-Hot Encoding
+library(caret)
+dummies <- dummyVars("~ .", data = significant_categorical_data)
+# Applichiamo il modello di One-Hot Encoding per ottenere il dataframe con le variabili dummy
+categorical_data_encoded <- as.data.frame(predict(dummies, newdata = significant_categorical_data))
+head(categorical_data_encoded)
+#aggrego variabili numeriche e categoriche
+clean_test_data <- cbind(numeric_data, categorical_data_encoded)
+
+
+cor_matrix <- cor(clean_test_data[, -which(names(clean_test_data) == "SalePrice")], use = "complete.obs")
+
+cor_matrix <- cor(clean_test_data, use = "pairwise.complete.obs")
