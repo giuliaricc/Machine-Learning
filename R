@@ -189,4 +189,11 @@ print(vif_values)
 complete_clean <- cbind(numeric_data,cat_one_hot,categorical_data_encoded)
 
 summary(complete_clean)
+y <- train$SalePrice
+
+complete_clean <- complete_clean[,-1]
+
+model <- lm(y ~ ., data = complete_clean)  # Regressione con tutte le variabili indipendenti
+
+summary(model)
 
