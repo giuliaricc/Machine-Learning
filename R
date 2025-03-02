@@ -10,6 +10,9 @@ library(e1071)
 
 #tengo una copia dell'originale
 train <- read_csv("/Users/gersiprendushi/Desktop/home-data-for-ml-course/train.csv")
+prova <- read_csv("/Users/gersiprendushi/Desktop/home-data-for-ml-course/test.csv")
+
+sample <- read_csv("/Users/gersiprendushi/Desktop/home-data-for-ml-course/sample_submission.csv")
 #dataset che modificherò
 test_data <- train
 
@@ -40,7 +43,6 @@ test_data$FireplaceQu[is.na(test_data$FireplaceQu)] <- "UNWANTED"
 test_data$PoolQC[is.na(test_data$PoolQC)] <- "PoolUnwanted"
 test_data$Fence[is.na(test_data$Fence)] <- "FenceUnwanted"
 test_data$MiscFeature[is.na(test_data$MiscFeature)] <- "FeaturesUnwanted"
-#faccio lo stesso anche con le altre variabili dove "NaN" NON significa "dato mancante"
 test_data$BsmtQual[is.na(test_data$BsmtQual)] <- "BasementUnwanted"
 test_data$BsmtCond[is.na(test_data$BsmtCond)] <- "BasementUnwanted"
 test_data$BsmtExposure[is.na(test_data$BsmtExposure)] <- "BasementUnwanted"
@@ -196,4 +198,70 @@ complete_clean <- complete_clean[,-1]
 model <- lm(y ~ ., data = complete_clean)  # Regressione con tutte le variabili indipendenti
 
 summary(model)
+
+
+##ora rifaccio tutto per il test
+# Modifiche da fare anche al dataset di test (prova)
+prova <- prova[,-1]  # Come nel caso di test_data, elimina la prima colonna se necessario
+
+# Analisi NaN per il dataset di test (prova)
+NaN_per_row_prova <- rowSums(is.na(prova))
+prova$na_count <- NaN_per_row_prova
+max(prova$na_count, na.rm = TRUE)
+
+# Rimuovi le righe che contengono NaN (se necessario) e rimuovi la colonna na_count
+prova <- prova %>% select(-na_count)
+
+# Tratta le variabili categoriche nello stesso modo
+prova$Alley[is.na(prova$Alley)] <- "UNWANTED"
+prova$FireplaceQu[is.na(prova$FireplaceQu)] <- "UNWANTED"
+prova$PoolQC[is.na(prova$PoolQC)] <- "PoolUnwanted"
+prova$Fence[is.na(prova$Fence)] <- "FenceUnwanted"
+prova$MiscFeature[is.na(prova$MiscFeature)] <- "FeaturesUnwanted"
+prova$BsmtQual[is.na(prova$BsmtQual)] <- "BasementUnwanted"
+prova$BsmtCond[is.na(prova$BsmtCond)] <- "BasementUnwanted"
+prova$BsmtExposure[is.na(prova$BsmtExposure)] <- "BasementUnwanted"
+prova$BsmtFinType1[is.na(prova$BsmtFinType1)] <- "BasementUnwanted"
+prova$BsmtFinType2[is.na(prova$BsmtFinType2)] <- "BasementUnwanted"
+prova$GarageType[is.na(prova$GarageType)] <- "GarageUnwanted"
+prova$GarageFinish[is.na(prova$GarageFinish)] <- "GarageUnwanted"
+prova$GarageQual[is.na(prova$GarageQual)] <- "GarageUnwanted"
+prova$GarageCond[is.na(prova$GarageCond)] <- "GarageUnwanted"
+
+# Converte anche le variabili categoriche in factor nel dataset di test
+prova[] <- lapply(prova, function(x) if(is.character(x)) as.factor(x) else x)
+
+# Applica le stesse trasformazioni a scala per le variabili categoriche significative nel dataset di test
+prova$ExterQual <- as.numeric(factor(prova$ExterQual, levels = c("Po", "Fa", "TA", "Gd", "Ex"), labels = c(1, 2, 3, 4, 5)))
+prova$ExterCond <- as.numeric(factor(prova$ExterCond, levels = c("Po", "Fa", "TA", "Gd", "Ex"), labels = c(1, 2, 3, 4, 5)))
+# Fai lo stesso per le altre variabili categoriche trasformate in numeriche
+
+# Applica One-Hot Encoding alle variabili categoriche nel dataset di test
+cat_one_hot_prova <- prova %>% select(where(~ !is.numeric(.)))
+categorical_data_encoded_prova <- as.data.frame(predict(dummies, newdata = cat_one_hot_prova))
+
+#dataset numerico
+numeric_data_prova <- prova[, sapply(prova, is.numeric)]
+
+# Ora unisci il dataset numerico e quello categorico
+complete_clean_prova <- cbind(numeric_data_prova, categorical_data_encoded_prova)
+
+
+# Identifica le variabili che sono state selezionate nel training
+train_vars <- colnames(complete_clean)
+
+# Assicurati che il dataset di test abbia tutte le variabili necessarie
+# Aggiungi le colonne mancanti nel dataset di test come NA (se non sono presenti)
+missing_cols <- setdiff(train_vars, colnames(complete_clean_prova))
+for (col in missing_cols) {
+  prova[[col]] <- NA
+}
+
+# Riordina le colonne nel dataset di test per corrispondere all'ordine di quelle nel dataset di addestramento
+prova <- prova[, train_vars]
+
+# Ora, puoi fare la previsione senza errori
+y_pred <- predict(model, newdata = prova)
+
+predictions <- predict(lm_model, newdata = numeric_test)
 
