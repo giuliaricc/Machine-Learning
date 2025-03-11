@@ -1,150 +1,167 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.feature_selection import f_classif
-from sklearn.linear_model import LinearRegression
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy import stats
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.decomposition import PCA
+from sklearn.feature_selection import f_classif
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+import os
 
-# ---------------------
-# STEP 1: Cleaning del train
-# ---------------------
+# =============== Importazione dati ===============
+# Importazione dati
+train_file_path = 'C:\\Users\\giuli\\OneDrive\\Desktop\\ERASMUS\\Esami ENSIIE\\Modelisation Statistique\\TP2\\home-data-for-ml-course\\train.csv'
+test_file_path = 'C:\\Users\\giuli\\OneDrive\\Desktop\\ERASMUS\\Esami ENSIIE\\Modelisation Statistique\\TP2\\home-data-for-ml-course\\test.csv'
 
-# Carica il dataset
-train_data = pd.read_csv("/Users/davidecanfora/Desktop/Apprendimento automatico/Progetto/home-data-for-ml-course/train.csv")
+train_data = pd.read_csv(train_file_path)
+test_data = pd.read_csv(test_file_path)
 
-# Rimuovo la colonna ID
-train_data.drop(columns=['Id'], inplace=True)
+train = train_data.copy()
 
-# Aggiungo una colonna che conta i NaN per riga
+# Rimuove la colonna ID
+train_data = train_data.iloc[:, 1:]
+
+# =============== Gestione NaN ===============
+# Aggiunge una colonna con il numero di NaN per riga
 train_data['na_count'] = train_data.isna().sum(axis=1)
-print("Max NaN per riga:", train_data['na_count'].max())
+print(f"Numero massimo di NaN per riga: {train_data['na_count'].max()}")
+train_data.drop('na_count', axis=1, inplace=True)
 
-# Rimuovo la colonna di conteggio dei NaN
-train_data.drop(columns=['na_count'], inplace=True)
+# Rimuove colonne con più del 40% di valori NaN
+threshold = 0.40 * len(train_data)
+cols_to_drop = train_data.columns[train_data.isna().sum() > threshold]
+train_data.drop(columns=cols_to_drop, inplace=True)
 
-# Individuo le colonne con troppi NaN (> 40%)
-threshold = 0.40 * train_data.shape[0]
-colonne_con_troppi_NaN = train_data.columns[train_data.isna().sum() > threshold]
-print("Colonne con troppi NaN (>40%):", colonne_con_troppi_NaN)
-
-# Sostituzione dei NaN con valori specifici
-train_data['Alley'].fillna('AlleyUnwanted', inplace=True)
-train_data['FireplaceQu'].fillna('FireplaceUnwanted', inplace=True)
-train_data['PoolQC'].fillna('PoolUnwanted', inplace=True)
-train_data['Fence'].fillna('FenceUnwanted', inplace=True)
-train_data['MiscFeature'].fillna('FeaturesUnwanted', inplace=True)
-train_data['BsmtQual'].fillna('BasementUnwanted', inplace=True)
-train_data['BsmtCond'].fillna('BasementUnwanted', inplace=True)
-train_data['BsmtExposure'].fillna('BasementUnwanted', inplace=True)
-train_data['BsmtFinType1'].fillna('BasementUnwanted', inplace=True)
-train_data['BsmtFinType2'].fillna('BasementUnwanted', inplace=True)
-train_data['GarageType'].fillna('GarageUnwanted', inplace=True)
-train_data['GarageFinish'].fillna('GarageUnwanted', inplace=True)
-train_data['GarageQual'].fillna('GarageUnwanted', inplace=True)
-train_data['GarageCond'].fillna('GarageUnwanted', inplace=True)
-
-# Converte le colonne object in categorie
-train_data = train_data.astype({col: 'category' for col in train_data.select_dtypes(include='object').columns})
-
-# Trova le variabili categoriche
-categorical_vars = train_data.select_dtypes(include='category').columns
-print(categorical_vars)
-
-# ANOVA per individuare variabili categoriche significative
-significant_categoricals = []
-for var in categorical_vars:
-    anova_result = f_classif(train_data[[var]].fillna('missing'), train_data['SalePrice'])
-    p_value = anova_result[1][0]
-    if p_value < 0.05:
-        significant_categoricals.append(var)
-    else:
-        print(f"Non significativa: {var} con p-value: {p_value}")
-
-# Encoding manuale delle variabili ordinali
-encode_map = {
-    "Po": 1, "Fa": 2, "TA": 3, "Gd": 4, "Ex": 5,
-    "BasementUnwanted": 0, "FireplaceUnwanted": 0, "GarageUnwanted": 0, "PoolUnwanted": 0
+# Sostituzione di NaN con valori "unwanted"
+columns_to_replace = {
+    'Alley': "UNWANTED",
+    'FireplaceQu': "UNWANTED",
+    'PoolQC': "PoolUnwanted",
+    'Fence': "FenceUnwanted",
+    'MiscFeature': "FeaturesUnwanted",
+    'BsmtQual': "BasementUnwanted",
+    'BsmtCond': "BasementUnwanted",
+    'BsmtExposure': "BasementUnwanted",
+    'BsmtFinType1': "BasementUnwanted",
+    'BsmtFinType2': "BasementUnwanted",
+    'GarageType': "GarageUnwanted",
+    'GarageFinish': "GarageUnwanted",
+    'GarageQual': "GarageUnwanted",
+    'GarageCond': "GarageUnwanted"
 }
 
-ordinal_vars = [
-    'ExterQual', 'ExterCond', 'BsmtQual', 'BsmtCond', 'HeatingQC',
-    'KitchenQual', 'FireplaceQu', 'GarageQual', 'GarageCond', 'PoolQC'
-]
+for col, value in columns_to_replace.items():
+    if col in train_data.columns:
+        train_data[col].fillna(value, inplace=True)
 
-for var in ordinal_vars:
-    train_data[var] = train_data[var].map(encode_map)
+# =============== Conversione categoriche ===============
+# Converte variabili categoriche in `category`
+train_data = train_data.astype({col: 'category' for col in train_data.select_dtypes('object').columns})
 
-# One-Hot Encoding
-encoder = OneHotEncoder(drop='first', sparse=False)
-encoded_categorical = encoder.fit_transform(train_data[significant_categoricals])
-encoded_df = pd.DataFrame(encoded_categorical, columns=encoder.get_feature_names_out(significant_categoricals))
+# Variabili categoriche
+categorical_vars = train_data.select_dtypes('category').columns
 
-# Unisco le variabili trasformate al dataset
-train_data = pd.concat([train_data, encoded_df], axis=1)
-train_data.drop(columns=significant_categoricals, inplace=True)
+# =============== ANOVA per selezione variabili categoriche ===============
+significant_categoricals = []
+non_significant = []
 
-# Rimuovo variabili con bassa correlazione (< 0.2)
-cor_target = train_data.corr()['SalePrice'].abs().sort_values(ascending=False)
-selected_vars = cor_target[cor_target > 0.2].index.tolist()
+for var in categorical_vars:
+    if var in train_data.columns:
+        le = LabelEncoder()
+        encoded_var = le.fit_transform(train_data[var].astype(str))
+        model = f_classif(encoded_var.reshape(-1, 1), train_data['SalePrice'])[1][0]
+        if model < 0.05:
+            significant_categoricals.append(var)
+        else:
+            non_significant.append((var, model))
 
-# Variance Inflation Factor (VIF) per multicollinearità
-X = train_data[selected_vars].drop(columns=['SalePrice'])
-vif = pd.Series([variance_inflation_factor(X.values, i) for i in range(X.shape[1])], index=X.columns)
-high_vif_vars = vif[vif > 10].index
-train_data.drop(columns=high_vif_vars, inplace=True)
+print("Variabili categoriche significative:", significant_categoricals)
 
-# Sostituisco i NaN con la media
-train_data.fillna(train_data.mean(), inplace=True)
+# =============== One-Hot Encoding ===============
+encoder = OneHotEncoder(drop='first', sparse_output=False)
+cat_one_hot = pd.DataFrame(encoder.fit_transform(train_data[significant_categoricals]))
+cat_one_hot.columns = encoder.get_feature_names_out(significant_categoricals)
 
-# ---------------------
-# STEP 2: Cleaning del test
-# ---------------------
+# =============== Analisi di correlazione ===============
+# Matrice di correlazione (tutte le variabili numeriche)
+numeric_data = train_data.select_dtypes(include=[np.number])
+plt.figure(figsize=(16, 12))
+sns.heatmap(numeric_data.corr(), annot=True, cmap='coolwarm', fmt='.2f', linewidths=0.5)
+plt.title('Matrice di correlazione')
+plt.show()
 
-test_data = pd.read_csv("/Users/davidecanfora/Desktop/Apprendimento automatico/Progetto/home-data-for-ml-course/test.csv")
-test_data.drop(columns=['Id'], inplace=True)
+# Scatter plot tra le variabili più correlate e SalePrice
+top_corr_features = cor_target.index[1:6].intersection(numeric_data.columns)
+plt.figure(figsize=(14, 10))
+for i, feature in enumerate(top_corr_features, 1):
+    plt.subplot(3, 2, i)
+    sns.scatterplot(x=numeric_data[feature], y=numeric_data['SalePrice'])
+    plt.title(f'{feature} vs SalePrice')
+plt.tight_layout()
+plt.show()
+# Matrice di correlazione
+plt.figure(figsize=(12, 8))
+sns.heatmap(numeric_data.corr(), annot=True, cmap='coolwarm', fmt='.2f', linewidths=0.5, mask=np.triu(np.ones(numeric_data.corr().shape)))
+plt.title('Matrice di correlazione')
+plt.show()
 
-# Stesse trasformazioni del training set
-for var in ordinal_vars:
-    test_data[var] = test_data[var].map(encode_map)
+# Scatter plot tra le variabili più correlate e SalePrice
+top_corr_features = cor_target.index[1:6]
+plt.figure(figsize=(14, 10))
+for i, feature in enumerate(top_corr_features, 1):
+    plt.subplot(3, 2, i)
+    sns.scatterplot(x=numeric_data[feature], y=numeric_data['SalePrice'])
+    plt.title(f'{feature} vs SalePrice')
+plt.tight_layout()
+plt.show()
+numeric_data = train_data.select_dtypes(include=[np.number])
+cor_target = numeric_data.corr()['SalePrice'].sort_values(ascending=False)
+selected_vars = cor_target[abs(cor_target) >= 0.2].index
+numeric_data = numeric_data[selected_vars]
 
-# One-Hot Encoding test
-encoded_test = encoder.transform(test_data[significant_categoricals])
-encoded_test_df = pd.DataFrame(encoded_test, columns=encoder.get_feature_names_out(significant_categoricals))
+# Rimuove NaN e Inf
+numeric_data.replace([np.inf, -np.inf], np.nan, inplace=True)
+numeric_data.dropna(inplace=True)
 
-# Aggiungi le colonne mancanti
-missing_cols = set(encoded_df.columns) - set(encoded_test_df.columns)
-for col in missing_cols:
-    encoded_test_df[col] = 0
+# =============== VIF per Multicollinearità ===============
+vif = pd.Series([variance_inflation_factor(numeric_data.values, i) 
+                 for i in range(numeric_data.shape[1])], 
+                index=numeric_data.columns)
 
-# Ordino le colonne per essere coerente con il training set
-encoded_test_df = encoded_test_df[encoded_df.columns]
+high_vif = vif[vif > 10].index
+numeric_data.drop(columns=high_vif, inplace=True)
 
-# Combino il dataset test
-test_data = pd.concat([test_data, encoded_test_df], axis=1)
-test_data.drop(columns=significant_categoricals, inplace=True)
+# =============== Unione dataset finale ===============
+final_train = pd.concat([numeric_data, cat_one_hot], axis=1)
 
-# Sostituisco i NaN con la media
-test_data.fillna(test_data.mean(), inplace=True)
+# Sostituisci NaN con la media
+final_train.fillna(final_train.mean(), inplace=True)
 
-# ---------------------
-# STEP 3: Check stesse colonne
-# ---------------------
-if set(test_data.columns) == set(train_data.columns):
+# =============== Salvataggio del dataset ===============
+os.makedirs('dataset_progetto', exist_ok=True)
+final_train.to_csv('dataset_progetto/save_train.csv', index=False)
+
+# =============== Test set ===============
+test_data = test_data.iloc[:, 1:]
+test_data.fillna('UNWANTED', inplace=True)
+
+cat_one_hot_test = pd.DataFrame(encoder.transform(test_data[significant_categoricals]))
+cat_one_hot_test.columns = encoder.get_feature_names_out(significant_categoricals)
+
+numeric_test_data = test_data.select_dtypes(include=[np.number])[selected_vars]
+numeric_test_data.drop(columns=high_vif, inplace=True)
+
+final_test = pd.concat([numeric_test_data, cat_one_hot_test], axis=1)
+final_test.fillna(final_test.mean(), inplace=True)
+
+final_test.to_csv('dataset_progetto/save_test.csv', index=False)
+
+# =============== Verifica colonne ===============
+if list(final_train.columns) == list(final_test.columns):
     print("✅ I dataset hanno le stesse colonne.")
 else:
     print("⚠️ I dataset NON hanno le stesse colonne.")
 
-# ---------------------
-# STEP 4: Salvo i dataset
-# ---------------------
-if not os.path.exists("dataset_progetto"):
-    os.mkdir("dataset_progetto")
-
-train_data.to_csv("dataset_progetto/save_train.csv", index=False)
-test_data.to_csv("dataset_progetto/save_test.csv", index=False)
-
-print("✅ I dataset sono stati salvati nella cartella 'dataset_progetto'.")
+    
